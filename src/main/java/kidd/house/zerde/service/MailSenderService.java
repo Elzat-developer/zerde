@@ -19,26 +19,26 @@ public class MailSenderService {
     @Autowired
     private KafkaTemplate<String, String> kafkaTemplate;
 
-    public void sendMessage(String message) {
-        CompletableFuture<SendResult<String, String>> future = kafkaTemplate.send(topicName, message);
-        future.whenComplete((result, ex) -> {
-            if (ex == null) {
-                System.out.println("Sent message=[" + message +
-                        "] with offset=[" + result.getRecordMetadata().offset() + "]");
-            } else {
-                System.out.println("Unable to send message=[" +
-                        message + "] due to : " + ex.getMessage());
-            }
-        });
-    }
-    public void send(String mailTo, String subject,String message){
-        SimpleMailMessage mailMessage = new SimpleMailMessage();
-        mailMessage.setFrom(username);
-        mailMessage.setTo(mailTo);
-        mailMessage.setSubject(subject);
-        mailMessage.setText(message);
-
-        mailSender.send(mailMessage);
-        kafkaTemplate.send("emailMessageTopic", )
-    }
+//    public void sendMessage(String message) {
+//        CompletableFuture<SendResult<String, String>> future = kafkaTemplate.send(topicName, message);
+//        future.whenComplete((result, ex) -> {
+//            if (ex == null) {
+//                System.out.println("Sent message=[" + message +
+//                        "] with offset=[" + result.getRecordMetadata().offset() + "]");
+//            } else {
+//                System.out.println("Unable to send message=[" +
+//                        message + "] due to : " + ex.getMessage());
+//            }
+//        });
+//    }
+//    public void send(String mailTo, String subject,String message){
+//        SimpleMailMessage mailMessage = new SimpleMailMessage();
+//        mailMessage.setFrom(username);
+//        mailMessage.setTo(mailTo);
+//        mailMessage.setSubject(subject);
+//        mailMessage.setText(message);
+//
+//        mailSender.send(mailMessage);
+//        kafkaTemplate.send("emailMessageTopic", )
+//    }
 }
