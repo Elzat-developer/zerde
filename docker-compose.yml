@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: zerde-app
+    container_name: zerde
     ports:
       - "8080:8080"
     environment:
@@ -24,7 +24,7 @@ services:
 
   db:
     image: mysql:8.0.41
-    container_name: mysql-8.0
+    container_name: mysql-kafka
     ports:
       - "3306:3306"
     environment:
@@ -32,6 +32,27 @@ services:
       MYSQL_DATABASE: zerde-kidd-house
     volumes:
       - db_data:/var/lib/mysql
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+      image: confluentinc/cp-kafka:7.5.0
+      container_name: kafka
+      ports:
+        - "9092:9092"
+      depends_on:
+        - zookeeper
+      environment:
+        KAFKA_BROKER_ID: 1
+        KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+        KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+        KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
 
 volumes:
   db_data:
