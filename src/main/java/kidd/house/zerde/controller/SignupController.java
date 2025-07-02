@@ -3,6 +3,7 @@ package kidd.house.zerde.controller;
 import kidd.house.zerde.dto.signupLesson.*;
 import kidd.house.zerde.service.SignupService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -20,17 +21,11 @@ public class SignupController {
     }
     @PostMapping
     public ResponseEntity<SignupResponse> createSignupLesson(@RequestBody SignupRequestDto signupRequest) {
-        // Сохраняем запись в базе со статусом "draft"
-        String status = signupService.saveSignup(signupRequest, "draft");
+        // Сохраняем запись в базе со статусом "success"
+        String status = signupService.saveSignup(signupRequest, "success");
 
-        // Проверяем условия для изменения статуса на "success"
-        boolean verificationSuccessful = signupService.verifySignup(signupRequest);
-
-        if (verificationSuccessful) {
-            status = signupService.updateStatus(signupRequest, "success");
             signupService.sendNotification(signupRequest);
-        }
 
-        return ResponseEntity.ok(new SignupResponse(status, "Запись успешно обработана"));
+        return new ResponseEntity<>(new SignupResponse(status, "Запись успешно обработана"), HttpStatus.CREATED);
     }
 }

@@ -1,17 +1,14 @@
 package kidd.house.zerde.controller;
 
+import kidd.house.zerde.dto.adminDto.*;
 import kidd.house.zerde.dto.lockLesson.LockLessonRequest;
 import kidd.house.zerde.dto.schedule.*;
+import kidd.house.zerde.dto.sendNotification.EmailMessageDto;
 import kidd.house.zerde.dto.sendNotification.NotificationRequestDto;
 import kidd.house.zerde.dto.weekSchedule.WeekScheduleResponse;
 import kidd.house.zerde.mapper.LessonMapper;
-import kidd.house.zerde.model.entity.Lesson;
-import kidd.house.zerde.model.entity.LockedSlot;
-import kidd.house.zerde.repo.LockedSlotRepo;
-import kidd.house.zerde.service.LessonService;
-import kidd.house.zerde.service.MailSenderService;
-import kidd.house.zerde.service.ParentService;
-import kidd.house.zerde.service.TelegramService;
+import kidd.house.zerde.model.entity.*;
+import kidd.house.zerde.service.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -25,15 +22,11 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class AdminController {
     private final LessonService lessonService;  // Сервис для работы с уроками
-    private final MailSenderService mailSenderService;  // Сервис для отправки email
     private final TelegramService telegramService;
     private final ParentService parentService;
-    private final LockedSlotRepo lockedSlotRepo;
     private final LessonMapper lessonMapper;
-    @GetMapping
-    public ResponseEntity<String> sayHello(){
-        return ResponseEntity.ok("Hi Admin");
-    }
+    private final EmailKafkaProducer emailKafkaProducer;
+    private final AdminService adminService;
     @GetMapping("/first-visit-schedule")
     public ResponseEntity<List<LessonDto>> schedule(){
         // Получаем список уроков из сервиса
@@ -50,7 +43,7 @@ public class AdminController {
         String lessonTime = lessonMapper.getLessonTime();
         // Группируем уроки по комнатам
         Map<String, List<LessonDto>> roomMap = lessons.stream()
-                .collect(Collectors.groupingBy(lesson -> lessonTime + "_" + lesson.roomDto().name()));
+                .collect(Collectors.groupingBy(lesson -> lesson.roomDto().name()));
 
         // Формируем список объектов WeekScheduleResponse
         List<WeekScheduleResponse> weekSchedule = new ArrayList<>();
@@ -73,37 +66,18 @@ public class AdminController {
         String lockDateTimeTo = lockLessonRequest.lockDateTimeTo();
         String roomName = lockLessonRequest.roomName();
         // 1. Проверка: есть ли уроки в указанное время
-        List<Lesson> existingLessons = lessonService.findLessonsBetween(
-                lockDateTimeFrom,lockDateTimeTo,roomName);
+        lessonService.lockLesson(lockDateTimeFrom, lockDateTimeTo, roomName);
 
-        if (!existingLessons.isEmpty()) {
-            throw new IllegalStateException("В указанное время уже есть уроки");
-        }
-
-        // 2. Проверка: нет ли уже заглушки
-        List<LockedSlot> lockedSlots = lockedSlotRepo
-                .findLockedBetween(lockDateTimeFrom,lockDateTimeTo,roomName);
-
-        if (!lockedSlots.isEmpty()) {
-            throw new IllegalStateException("Уже стоит заглушка на это время");
-        }
-
-        // 3. Сохранение заглушки
-        LockedSlot slot = new LockedSlot();
-        slot.setLockedFrom(lockDateTimeFrom);
-        slot.setLockedTo(lockDateTimeTo);
-        slot.setRoomName(roomName);
-        lockedSlotRepo.save(slot);
-
-        return ResponseEntity.ok("Lesson locked successfully for room ID " + roomName
-                + " from " + lockDateTimeFrom + " to " + lockDateTimeTo);
+        return new ResponseEntity<>("Lesson locked successfully for room ID " + roomName
+                + " from " + lockDateTimeFrom + " to " + lockDateTimeTo, HttpStatus.LOCKED);
     }
+
     @PostMapping("/send-notification")
     public ResponseEntity<String> sendNotification(@RequestBody NotificationRequestDto notificationRequest) {
         int lessonId = notificationRequest.lessonId();
         Optional<Lesson> lesson = lessonService.findById(lessonId);
         // Поиск урока по lessonId через сервис
-        if (lesson == null) {
+        if (lesson.isEmpty()) {
             return ResponseEntity.status(404).body("Lesson not found");
         }
 
@@ -120,12 +94,12 @@ public class AdminController {
         );
         try {
             // Отправка email родителю, если указан email
-            if (lesson.get().getParent().getParentEmail() != null) {
-                mailSenderService.send(
-                        lesson.get().getParent().getParentEmail(),
+            if (lesson.get().getChildren().get(0).getParent().getParentEmail() != null) {
+                emailKafkaProducer.sendEmail(new EmailMessageDto(
+                        lesson.get().getChildren().get(0).getParent().getParentEmail(),
                         "Напоминание о предстоящем уроке",
                         message
-                );
+                ));
             }
             System.out.println("Формируемое сообщение: " + message);
             // Отправка уведомления в Telegram, если указан номер телефона
@@ -148,5 +122,41 @@ public class AdminController {
         }
 
         return ResponseEntity.ok("Notification for lesson ID " + lessonId + " sent successfully.");
+    }
+    @GetMapping("/lessons")
+    public ResponseEntity<List<LessonDtos>> getAllLessons(){
+        List<LessonDtos> lessons = adminService.getLessons();
+       return ResponseEntity.ok(lessons);
+    }
+    @GetMapping("/lessons/{lessonId}/children")
+    public ResponseEntity<List<ChildDtos>> getChildList(@PathVariable Long lessonId){
+        List<ChildDtos> children = adminService.getChildrenByLessonId(lessonId);
+        return ResponseEntity.ok(children);
+    }
+    @PostMapping("/create-teacher")
+    public ResponseEntity<String> createTeacher(@RequestBody CreateTeacherDto createTeacherDto){
+        adminService.createNewTeacher(createTeacherDto);
+        return new ResponseEntity<>("Teacher successfully created!",HttpStatus.CREATED);
+    }
+    @PostMapping("/create-subject")
+    public ResponseEntity<String> createSubject(@RequestBody CreateSubjectDto createSubjectDto){
+        adminService.createNewSubject(createSubjectDto);
+        return new ResponseEntity<>("Subject successfully created!",HttpStatus.CREATED);
+    }
+    @PostMapping("/create-room")
+    public ResponseEntity<String> createRoom(@RequestBody CreateRoomDto createRoomDto){
+        adminService.createNewRoom(createRoomDto);
+        return new ResponseEntity<>("Room successfully created!",HttpStatus.CREATED);
+    }
+    @PostMapping("/create-group")
+    public ResponseEntity<String> createGroup(@RequestBody CreateGroupDto createGroupDto){
+        adminService.createNewGroup(createGroupDto);
+        return new ResponseEntity<>("Group successfully created!",HttpStatus.CREATED);
+    }
+    @PostMapping("/create-lesson")
+    public ResponseEntity<String> createLesson(@RequestBody CreateLessonDto createLessonDto){
+        adminService.createNewLesson(createLessonDto);
+        adminService.sendNotification(createLessonDto);
+        return new ResponseEntity<>("Lesson successfully created!",HttpStatus.CREATED);
     }
 }
